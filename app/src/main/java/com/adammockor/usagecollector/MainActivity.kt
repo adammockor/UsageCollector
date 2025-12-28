@@ -1,0 +1,91 @@
+package com.adammockor.usagecollector
+
+import android.content.Intent
+import android.os.Bundle
+import android.provider.Settings
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.work.*
+import java.util.concurrent.TimeUnit
+
+class MainActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        scheduleCollectors()
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 40, 40, 40)
+        }
+
+        val status = TextView(this)
+
+        fun refresh() {
+            status.text = if (UsageAccess.hasUsageAccess(this))
+                "Usage access: GRANTED"
+            else
+                "Usage access: NOT GRANTED"
+        }
+
+        val grant = Button(this).apply {
+            text = "Grant Usage Access"
+            setOnClickListener { startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)) }
+        }
+
+        val runCollectorNow = Button(this).apply {
+            text = "Run Collector Now"
+            setOnClickListener {
+                WorkManager.getInstance(this@MainActivity)
+                    .enqueue(OneTimeWorkRequestBuilder<UsageEventCollectorWorker>().build())
+            }
+        }
+
+        val exportYesterdayNow = Button(this).apply {
+            text = "Export Yesterday Now"
+            setOnClickListener {
+                WorkManager.getInstance(this@MainActivity)
+                    .enqueue(OneTimeWorkRequestBuilder<DailyUsageExportWorker>().build())
+            }
+        }
+
+        val refreshBtn = Button(this).apply {
+            text = "Refresh Status"
+            setOnClickListener { refresh() }
+        }
+
+        layout.addView(status)
+        layout.addView(grant)
+        layout.addView(refreshBtn)
+        layout.addView(runCollectorNow)
+        layout.addView(exportYesterdayNow)
+        setContentView(layout)
+
+        refresh()
+    }
+
+    private fun scheduleCollectors() {
+        // 15-min collector (minimum periodic interval)
+        val collectorReq = PeriodicWorkRequestBuilder<UsageEventCollectorWorker>(15, TimeUnit.MINUTES)
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "usage_event_collector",
+            ExistingPeriodicWorkPolicy.KEEP,
+            collectorReq
+        )
+
+        // Daily export (best effort; WorkManager doesn't guarantee exact time)
+        val exportReq = PeriodicWorkRequestBuilder<DailyUsageExportWorker>(24, TimeUnit.HOURS)
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "daily_usage_export",
+            ExistingPeriodicWorkPolicy.KEEP,
+            exportReq
+        )
+    }
+}
