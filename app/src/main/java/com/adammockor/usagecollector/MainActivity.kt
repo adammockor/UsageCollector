@@ -8,6 +8,10 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.work.*
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
@@ -17,6 +21,10 @@ class MainActivity : ComponentActivity() {
 
         scheduleCollectors()
 
+        val store = Store(this)
+        val zone = ZoneId.systemDefault()
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(40, 40, 40, 40)
@@ -25,10 +33,19 @@ class MainActivity : ComponentActivity() {
         val status = TextView(this)
 
         fun refresh() {
-            status.text = if (UsageAccess.hasUsageAccess(this))
+            val access = if (UsageAccess.hasUsageAccess(this))
                 "Usage access: GRANTED"
             else
                 "Usage access: NOT GRANTED"
+
+            val lastTs = store.getLastTs(0L)
+            val lastText = if (lastTs <= 0L) {
+                "Never"
+            } else {
+                Instant.ofEpochMilli(lastTs).atZone(zone).format(formatter)
+            }
+
+            status.text = "$access\nLast collection: $lastText"
         }
 
         val grant = Button(this).apply {
