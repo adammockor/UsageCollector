@@ -1,6 +1,7 @@
 package com.adammockor.usagecollector
 
 import android.content.Context
+import androidx.core.content.edit
 import org.json.JSONObject
 import java.io.File
 import java.time.LocalDate
@@ -13,20 +14,20 @@ class Store(private val context: Context) : OutputSink {
     private val prefs = context.getSharedPreferences("collector_state", Context.MODE_PRIVATE)
 
     fun getLastTs(defaultValue: Long): Long = prefs.getLong("last_ts", defaultValue)
-    fun setLastTs(v: Long) = prefs.edit().putLong("last_ts", v).apply()
+    fun setLastTs(v: Long) = prefs.edit { putLong("last_ts", v) }
 
     fun getLastExportTs(defaultValue: Long): Long = prefs.getLong("last_export_ts", defaultValue)
-    fun setLastExportTs(v: Long) = prefs.edit().putLong("last_export_ts", v).apply()
+    fun setLastExportTs(v: Long) = prefs.edit { putLong("last_export_ts", v) }
 
     fun getScreenInteractive(defaultValue: Boolean): Boolean =
         prefs.getBoolean("screen_interactive", defaultValue)
 
-    fun setScreenInteractive(v: Boolean) = prefs.edit().putBoolean("screen_interactive", v).apply()
+    fun setScreenInteractive(v: Boolean) = prefs.edit { putBoolean("screen_interactive", v) }
 
     fun getCurrentPkg(): String? = prefs.getString("current_pkg", null)
-    fun setCurrentPkg(v: String?) = prefs.edit().putString("current_pkg", v).apply()
+    fun setCurrentPkg(v: String?) = prefs.edit { putString("current_pkg", v) }
     fun getCurrentStart(): Long = prefs.getLong("current_start", -1L)
-    fun setCurrentStart(v: Long) = prefs.edit().putLong("current_start", v).apply()
+    fun setCurrentStart(v: Long) = prefs.edit { putLong("current_start", v) }
 
     fun addToDay(day: LocalDate, pkg: String, deltaMs: Long) {
         if (deltaMs <= 0) return
