@@ -4,10 +4,11 @@ import android.content.Context
 import org.json.JSONObject
 import java.io.File
 import java.time.LocalDate
-import java.time.Instant
-import java.time.ZoneId
 
-class Store(private val context: Context) {
+import com.adammockor.usagecollector.core.Interval
+import com.adammockor.usagecollector.core.OutputSink
+
+class Store(private val context: Context) : OutputSink {
 
     private val prefs = context.getSharedPreferences("collector_state", Context.MODE_PRIVATE)
 
@@ -21,7 +22,6 @@ class Store(private val context: Context) {
 
     fun getCurrentPkg(): String? = prefs.getString("current_pkg", null)
     fun setCurrentPkg(v: String?) = prefs.edit().putString("current_pkg", v).apply()
-
     fun getCurrentStart(): Long = prefs.getLong("current_start", -1L)
     fun setCurrentStart(v: Long) = prefs.edit().putLong("current_start", v).apply()
 
@@ -33,8 +33,8 @@ class Store(private val context: Context) {
         val file = File(dir, "$day.json")
 
         val json = if (file.exists()) JSONObject(file.readText()) else JSONObject()
-        val cur = json.optLong(pkg, 0L)
-        json.put(pkg, cur + deltaMs)
+        val current = json.optLong(pkg, 0L)
+        json.put(pkg, current + deltaMs)
         file.writeText(json.toString())
     }
 
@@ -43,6 +43,10 @@ class Store(private val context: Context) {
         return if (file.exists()) JSONObject(file.readText()) else null
     }
 
+    /**
+     * Append a single interval row to a per-day CSV in internal storage.
+     * File: filesDir/daily_intervals/YYYY-MM-DD.csv
+     */
     fun addInterval(day: LocalDate, pkg: String, startMs: Long, endMs: Long) {
         if (endMs <= startMs) return
 
@@ -50,9 +54,7 @@ class Store(private val context: Context) {
         dir.mkdirs()
         val file = File(dir, "$day.csv")
 
-        // Write header once
         val writeHeader = !file.exists()
-
         file.appendText(
             buildString {
                 if (writeHeader) {
@@ -62,5 +64,13 @@ class Store(private val context: Context) {
                 append("$day,$pkg,$startMs,$endMs,$dur\n")
             }
         )
+    }
+    override fun addDuration(day: LocalDate, pkg: String, deltaMs: Long) {
+        addToDay(day, pkg, deltaMs)
+    }
+
+    override fun addInterval(interval: Interval) {
+        // Overload: delegates to the CSV append function below
+        addInterval(interval.day, interval.pkg, interval.startMs, interval.endMs)
     }
 }

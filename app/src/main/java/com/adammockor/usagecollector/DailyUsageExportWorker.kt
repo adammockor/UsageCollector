@@ -1,20 +1,19 @@
 package com.adammockor.usagecollector
 
+import android.content.ContentValues
 import android.content.Context
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import java.io.File
 import java.time.LocalDate
 import java.time.ZoneId
-import android.content.ContentValues
-import android.os.Environment
-import android.provider.MediaStore
 
 class DailyUsageExportWorker(
     appContext: Context,
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
-
     private fun writeCsvToDownloads(context: Context, fileName: String, csvContent: String) {
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
@@ -43,6 +42,7 @@ class DailyUsageExportWorker(
         val store = Store(applicationContext)
         val json = store.readDay(date) ?: return Result.success()
 
+        // Export totals CSV
         val totalsCsv = buildString {
             append("date,package,interactive_foreground_ms\n")
             val keys = json.keys()
@@ -59,6 +59,7 @@ class DailyUsageExportWorker(
             totalsCsv
         )
 
+        // Export intervals CSV (if present)
         val intervalsIn = File(File(applicationContext.filesDir, "daily_intervals"), "$date.csv")
         if (intervalsIn.exists()) {
             writeCsvToDownloads(

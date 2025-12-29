@@ -7,9 +7,11 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
+
+import com.adammockor.usagecollector.core.CollectorState
+import com.adammockor.usagecollector.core.UE
+import com.adammockor.usagecollector.core.UsageSessionProcessor
 
 class UsageEventCollectorWorker(
     appContext: Context,
@@ -20,6 +22,7 @@ class UsageEventCollectorWorker(
         if (!UsageAccess.hasUsageAccess(applicationContext)) return Result.retry()
 
         val store = Store(applicationContext)
+
         val now = System.currentTimeMillis()
         val fallbackLast = now - 20 * 60 * 1000L // first run safety window
         val last = store.getLastTs(fallbackLast)
@@ -28,93 +31,45 @@ class UsageEventCollectorWorker(
         val events = usm.queryEvents(last, now)
 
         val zone = ZoneId.systemDefault()
-
         val pm = applicationContext.getSystemService(Context.POWER_SERVICE) as PowerManager
-        var screenInteractive = store.getScreenInteractive(pm.isInteractive)
-        var currentPkg: String? = store.getCurrentPkg()
-        var currentStart = store.getCurrentStart() // valid only if interactive + pkg != null
 
-        // helper: add duration, split by local midnight, and ignore micro-segments
-        fun addSegment(startMs: Long, endMs: Long, pkg: String) {
-            val minSegmentMs = 1_000L // ignore <1s noise (tweak if needed)
-            if (endMs - startMs < minSegmentMs) return
-            if (endMs <= startMs) return
-
-            var s = startMs
-            while (s < endMs) {
-                val day = Instant.ofEpochMilli(s).atZone(zone).toLocalDate()
-                val dayEnd = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-                val segEnd = minOf(endMs, dayEnd)
-                store.addToDay(day, pkg, segEnd - s)
-                store.addInterval(day, pkg, s, segEnd)
-                s = segEnd
-            }
-        }
-
-        var lastEventTs = last
-        val e = UsageEvents.Event()
+        // Convert Android UsageEvents -> List<UE> (pure model)
+        val list = ArrayList<UE>()
+        val ev = UsageEvents.Event()
         while (events.hasNextEvent()) {
-            events.getNextEvent(e)
-            lastEventTs = e.timeStamp
-
-            when (e.eventType) {
-                UsageEvents.Event.SCREEN_INTERACTIVE -> {
-                    screenInteractive = true
-                    // resume counting for current foreground app from this moment
-                    if (currentPkg != null) currentStart = e.timeStamp
-                }
-
-                UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
-                    // close current segment at screen-off
-                    if (screenInteractive && currentPkg != null && currentStart >= 0) {
-                        addSegment(currentStart, e.timeStamp, currentPkg!!)
-                    }
-                    screenInteractive = false
-                    currentStart = -1L
-                }
-
-                UsageEvents.Event.ACTIVITY_RESUMED -> {
-                    // close previous app segment
-                    if (screenInteractive && currentPkg != null && currentStart >= 0) {
-                        addSegment(currentStart, e.timeStamp, currentPkg!!)
-                    }
-                    currentPkg = e.packageName
-                    currentStart = if (screenInteractive) e.timeStamp else -1L
-                }
-
-                UsageEvents.Event.ACTIVITY_PAUSED -> {
-                    // close segment for that app if it is current
-                    if (screenInteractive && currentPkg == e.packageName && currentStart >= 0) {
-                        addSegment(currentStart, e.timeStamp, currentPkg!!)
-                    }
-                    if (currentPkg == e.packageName) {
-                        currentPkg = null
-                        currentStart = -1L
-                    }
-                }
-            }
+            events.getNextEvent(ev)
+            list.add(UE(ts = ev.timeStamp, type = ev.eventType, pkg = ev.packageName))
         }
 
-        // Close any open segment up to "now" to avoid undercounting when there are no closing events
-        if (screenInteractive && currentPkg != null && currentStart >= 0 && now > currentStart) {
-            addSegment(currentStart, now, currentPkg!!)
-            // keep the segment open for the next run
-            currentStart = now
-        }
+        // Restore previous state (what your old worker stored)
+        val screenInteractive = store.getScreenInteractive(pm.isInteractive)
+        val currentPkg = store.getCurrentPkg()
+        val currentStart = store.getCurrentStart()
 
-        // If no events were returned, keep lastEventTs as the previous `last`
-        // and advance lastTs to now to avoid reprocessing the same empty window.
+        val prev = CollectorState(
+            lastTs = last,
+            screenInteractive = screenInteractive,
+            currentPkg = currentPkg,
+            currentStart = currentStart
+        )
 
-        // Persist state for the next run
-        store.setLastTs(now)
-        store.setScreenInteractive(screenInteractive)
-        store.setCurrentPkg(currentPkg)
-        store.setCurrentStart(currentStart)
+        // Process events into intervals + totals (store must implement OutputSink for this to compile)
+        val processor = UsageSessionProcessor(zone)
+        val next = processor.process(prev, list, now, store)
+
+        // Persist next state
+        store.setLastTs(next.lastTs)
+        store.setScreenInteractive(next.screenInteractive)
+        store.setCurrentPkg(next.currentPkg)
+        store.setCurrentStart(next.currentStart)
+
+        val lastEventTs = list.lastOrNull()?.ts ?: last
 
         Log.d(
             "USAGE",
-            "Collected events window last=$last now=$now lastEventTs=$lastEventTs interactive=$screenInteractive currentPkg=$currentPkg currentStart=$currentStart"
+            "Collected events window last=$last now=$now lastEventTs=$lastEventTs interactive=${next.screenInteractive} currentPkg=${next.currentPkg} currentStart=${next.currentStart}"
         )
+
         return Result.success()
     }
 }
