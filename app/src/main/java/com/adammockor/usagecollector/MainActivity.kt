@@ -45,7 +45,14 @@ class MainActivity : ComponentActivity() {
                 Instant.ofEpochMilli(lastTs).atZone(zone).format(formatter)
             }
 
-            status.text = "$access\nLast collection: $lastText"
+            val lastExportTs = store.getLastExportTs(0L)
+            val lastExportText = if (lastExportTs <= 0L) {
+                "Never"
+            } else {
+                Instant.ofEpochMilli(lastExportTs).atZone(zone).format(formatter)
+            }
+
+            status.text = "$access\nLast collection: $lastText\nLast export: $lastExportText"
         }
 
         val grant = Button(this).apply {

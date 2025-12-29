@@ -15,6 +15,9 @@ class Store(private val context: Context) : OutputSink {
     fun getLastTs(defaultValue: Long): Long = prefs.getLong("last_ts", defaultValue)
     fun setLastTs(v: Long) = prefs.edit().putLong("last_ts", v).apply()
 
+    fun getLastExportTs(defaultValue: Long): Long = prefs.getLong("last_export_ts", defaultValue)
+    fun setLastExportTs(v: Long) = prefs.edit().putLong("last_export_ts", v).apply()
+
     fun getScreenInteractive(defaultValue: Boolean): Boolean =
         prefs.getBoolean("screen_interactive", defaultValue)
 

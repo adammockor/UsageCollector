@@ -69,6 +69,8 @@ class DailyUsageExportWorker(
             )
         }
 
+        store.setLastExportTs(System.currentTimeMillis())
+
         return Result.success()
     }
 }
